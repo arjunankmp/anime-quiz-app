@@ -1,0 +1,1504 @@
+import React, { useState, useEffect } from "react";
+import { UserProgress } from "@/entities/UserProgress";
+import { User } from "@/entities/User";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { Play, Coins, Trophy, Zap, Star } from "lucide-react";
+import { motion } from "framer-motion";
+
+import PlayerStats from "../components/home/PlayerStats";
+import LevelSelector from "../components/home/LevelSelector";
+import QuickActions from "../components/home/QuickActions";
+
+export default function Home() {
+  const [userProgress, setUserProgress] = useState(null);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadUserData();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      const currentUser = await User.me();
+      setUser(currentUser);
+      
+      const progressList = await UserProgress.filter({ created_by: currentUser.email });
+      if (progressList.length > 0) {
+        setUserProgress(progressList[0]);
+      } else {
+        // Create initial progress
+        const newProgress = await UserProgress.create({
+          total_coins: 0,
+          unlocked_packs: ["general"],
+          questions_answered: 0,
+          questions_correct: 0,
+          highest_streak: 0,
+          level: 1
+        });
+        setUserProgress(newProgress);
+      }
+    } catch (error) {
+      console.error("Error loading user data:", error);
+    }
+    setLoading(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-spin">
+            <Zap className="w-8 h-8 text-white" />
+          </div>
+          <p className="text-purple-300 text-lg">Loading your anime adventure...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center mb-8"
+        >
+          <h1 className="text-4xl md:text-6xl font-bold mb-4">
+            <span className="gradient-text">Anime Quiz</span>
+            <span className="text-white"> Adventure</span>
+          </h1>
+          <p className="text-purple-300 text-lg md:text-xl">
+            Welcome back, {user?.full_name || 'Otaku'}! Ready to test your anime knowledge?
+          </p>
+        </motion.div>
+
+        {/* Player Stats */}
+        {userProgress && (
+          <PlayerStats userProgress={userProgress} />
+        )}
+
+        {/* Level Selection */}
+        <LevelSelector />
+
+        {/* Quick Actions */}
+        <QuickActions userProgress={userProgress} />
+
+        {/* Motivational Quote */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.8 }}
+          className="mt-12 text-center"
+        >
+          <Card className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-purple-500/30 backdrop-blur-md">
+            <CardContent className="p-6">
+              <Star className="w-8 h-8 text-yellow-400 mx-auto mb-3" />
+              <blockquote className="text-white text-lg italic mb-2">
+                "The true power of friendship isn't just knowing your friends will be there for you... 
+                it's knowing you'll be there for them."
+              </blockquote>
+              <p className="text-purple-300">— Natsu Dragneel, Fairy Tail</p>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+import React, { useState, useEffect, useCallback } from "react";
+import { Question } from "@/entities/Question";
+import { UserProgress } from "@/entities/UserProgress";
+import { User } from "@/entities/User";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { motion, AnimatePresence } from "framer-motion";
+
+import QuizHeader from "../components/quiz/QuizHeader";
+import QuestionCard from "../components/quiz/QuestionCard";
+import AnswerFeedback from "../components/quiz/AnswerFeedback";
+import QuizResults from "../components/quiz/QuizResults";
+
+export default function Quiz() {
+  const navigate = useNavigate();
+  const [questions, setQuestions] = useState([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [score, setScore] = useState(0);
+  const [coins, setCoins] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [userProgress, setUserProgress] = useState(null);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [lastAnswerCorrect, setLastAnswerCorrect] = useState(false);
+  const [isComplete, setIsComplete] = useState(false);
+  const [selectedDifficulty, setSelectedDifficulty] = useState('easy');
+  const [selectedPack, setSelectedPack] = useState('general');
+  const [loading, setLoading] = useState(true);
+
+  const initializeQuiz = useCallback(async () => {
+    try {
+      // Get URL parameters for difficulty and pack
+      const urlParams = new URLSearchParams(window.location.search);
+      const difficulty = urlParams.get('difficulty') || 'easy';
+      const pack = urlParams.get('pack') || 'general';
+      
+      setSelectedDifficulty(difficulty);
+      setSelectedPack(pack);
+
+      // Load user progress
+      const currentUser = await User.me();
+      const progressList = await UserProgress.filter({ created_by: currentUser.email });
+      if (progressList.length > 0) {
+        setUserProgress(progressList[0]);
+      }
+
+      // Load questions for selected difficulty and pack
+      const questionList = await Question.filter({ 
+        difficulty: difficulty,
+        pack: pack
+      });
+      
+      // Shuffle questions and take first 10
+      const shuffledQuestions = questionList.sort(() => Math.random() - 0.5).slice(0, 10);
+      setQuestions(shuffledQuestions);
+      
+      setLoading(false);
+    } catch (error) {
+      console.error("Error initializing quiz:", error);
+      navigate(createPageUrl("Home"));
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    initializeQuiz();
+  }, [initializeQuiz]);
+
+  const handleAnswer = (selectedAnswer) => {
+    const currentQuestion = questions[currentQuestionIndex];
+    const isCorrect = selectedAnswer === currentQuestion.correct_answer;
+    
+    setLastAnswerCorrect(isCorrect);
+    setShowFeedback(true);
+
+    if (isCorrect) {
+      setScore(score + 1);
+      setCoins(coins + currentQuestion.coins_reward);
+      setStreak(streak + 1);
+    } else {
+      setStreak(0);
+    }
+
+    // Show feedback for 2 seconds then move to next question
+    setTimeout(() => {
+      setShowFeedback(false);
+      
+      if (currentQuestionIndex + 1 >= questions.length) {
+        completeQuiz();
+      } else {
+        setCurrentQuestionIndex(currentQuestionIndex + 1);
+      }
+    }, 2000);
+  };
+
+  const completeQuiz = async () => {
+    setIsComplete(true);
+    
+    // Update user progress
+    if (userProgress) {
+      const newTotalCoins = userProgress.total_coins + coins;
+      const newQuestionsAnswered = userProgress.questions_answered + questions.length;
+      const newQuestionsCorrect = userProgress.questions_correct + score;
+      const newHighestStreak = Math.max(userProgress.highest_streak, streak);
+      
+      await UserProgress.update(userProgress.id, {
+        total_coins: newTotalCoins,
+        questions_answered: newQuestionsAnswered,
+        questions_correct: newQuestionsCorrect,
+        highest_streak: newHighestStreak,
+      });
+    }
+  };
+
+  const restartQuiz = () => {
+    setCurrentQuestionIndex(0);
+    setScore(0);
+    setCoins(0);
+    setStreak(0);
+    setShowFeedback(false);
+    setLastAnswerCorrect(false);
+    setIsComplete(false);
+    initializeQuiz();
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <span className="text-white text-2xl">?</span>
+          </div>
+          <p className="text-purple-300 text-lg">Preparing your quiz...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isComplete) {
+    return (
+      <QuizResults
+        score={score}
+        totalQuestions={questions.length}
+        coinsEarned={coins}
+        streak={streak}
+        difficulty={selectedDifficulty}
+        pack={selectedPack}
+        onPlayAgain={restartQuiz}
+        onGoHome={() => navigate(createPageUrl("Home"))}
+      />
+    );
+  }
+
+  return (
+    <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-4xl mx-auto">
+        <QuizHeader
+          currentQuestion={currentQuestionIndex + 1}
+          totalQuestions={questions.length}
+          score={score}
+          coins={coins}
+          streak={streak}
+          difficulty={selectedDifficulty}
+          pack={selectedPack}
+        />
+
+        <div className="mt-8">
+          <AnimatePresence mode="wait">
+            {showFeedback ? (
+              <AnswerFeedback 
+                isCorrect={lastAnswerCorrect}
+                correctAnswer={questions[currentQuestionIndex]?.options[questions[currentQuestionIndex]?.correct_answer]}
+                coinsEarned={lastAnswerCorrect ? questions[currentQuestionIndex]?.coins_reward : 0}
+              />
+            ) : (
+              <QuestionCard
+                key={currentQuestionIndex}
+                question={questions[currentQuestionIndex]}
+                onAnswer={handleAnswer}
+                questionNumber={currentQuestionIndex + 1}
+              />
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+    </div>
+  );
+}
+import React, { useState, useEffect } from "react";
+import { UserProgress } from "@/entities/UserProgress";
+import { User } from "@/entities/User";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Coins, ShoppingBag, Lock, Check } from "lucide-react";
+import { motion } from "framer-motion";
+
+import CoinsDisplay from "../components/shop/CoinsDisplay";
+import PackCard from "../components/shop/PackCard";
+
+const QUESTION_PACKS = [
+  {
+    id: "naruto",
+    name: "Naruto Pack",
+    description: "Test your knowledge of the Hidden Leaf Village",
+    price: 50,
+    color: "from-orange-500 to-yellow-500",
+    icon: "🍥"
+  },
+  {
+    id: "dragon_ball",
+    name: "Dragon Ball Pack",
+    description: "Power up with Saiyan knowledge",
+    price: 75,
+    color: "from-blue-500 to-cyan-500",
+    icon: "🐉"
+  },
+  {
+    id: "demon_slayer",
+    name: "Demon Slayer Pack",
+    description: "Slice through demons with your knowledge",
+    price: 100,
+    color: "from-red-500 to-pink-500",
+    icon: "⚔️"
+  },
+  {
+    id: "attack_on_titan",
+    name: "Attack on Titan Pack",
+    description: "Defend humanity with your wisdom",
+    price: 125,
+    color: "from-green-500 to-teal-500",
+    icon: "🏰"
+  },
+  {
+    id: "one_piece",
+    name: "One Piece Pack",
+    description: "Sail the Grand Line of questions",
+    price: 150,
+    color: "from-purple-500 to-indigo-500",
+    icon: "🏴‍☠️"
+  }
+];
+
+export default function Shop() {
+  const [userProgress, setUserProgress] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [purchasing, setPurchasing] = useState(null);
+
+  useEffect(() => {
+    loadUserData();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      const currentUser = await User.me();
+      const progressList = await UserProgress.filter({ created_by: currentUser.email });
+      if (progressList.length > 0) {
+        setUserProgress(progressList[0]);
+      }
+    } catch (error) {
+      console.error("Error loading user data:", error);
+    }
+    setLoading(false);
+  };
+
+  const purchasePack = async (packId, price) => {
+    if (!userProgress || userProgress.total_coins < price) return;
+    if (userProgress.unlocked_packs.includes(packId)) return;
+
+    setPurchasing(packId);
+
+    try {
+      const newCoins = userProgress.total_coins - price;
+      const newUnlockedPacks = [...userProgress.unlocked_packs, packId];
+
+      await UserProgress.update(userProgress.id, {
+        total_coins: newCoins,
+        unlocked_packs: newUnlockedPacks
+      });
+
+      setUserProgress({
+        ...userProgress,
+        total_coins: newCoins,
+        unlocked_packs: newUnlockedPacks
+      });
+    } catch (error) {
+      console.error("Error purchasing pack:", error);
+    }
+
+    setPurchasing(null);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <ShoppingBag className="w-8 h-8 text-white" />
+          </div>
+          <p className="text-purple-300 text-lg">Loading the shop...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center mb-8"
+        >
+          <h1 className="text-4xl md:text-5xl font-bold mb-4 gradient-text">
+            Anime Shop
+          </h1>
+          <p className="text-purple-300 text-lg">
+            Use your coins to unlock new question packs!
+          </p>
+        </motion.div>
+
+        {/* Coins Display */}
+        {userProgress && (
+          <CoinsDisplay totalCoins={userProgress.total_coins} />
+        )}
+
+        {/* Question Packs */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {QUESTION_PACKS.map((pack, index) => (
+            <PackCard
+              key={pack.id}
+              pack={pack}
+              userProgress={userProgress}
+              onPurchase={purchasePack}
+              purchasing={purchasing === pack.id}
+              index={index}
+            />
+          ))}
+        </div>
+
+        {/* Pro Tip */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.6 }}
+          className="mt-12"
+        >
+          <Card className="bg-gradient-to-r from-blue-900/50 to-purple-900/50 border-blue-500/30 backdrop-blur-md">
+            <CardContent className="p-6 text-center">
+              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Coins className="w-6 h-6 text-white" />
+              </div>
+              <h3 className="text-white text-xl font-bold mb-2">Pro Tip!</h3>
+              <p className="text-blue-300">
+                Play more quizzes to earn coins faster. Higher difficulty levels give more coins per correct answer!
+              </p>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+import React, { useState, useEffect } from "react";
+import { UserProgress } from "@/entities/UserProgress";
+import { User } from "@/entities/User";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Trophy, Target, Zap, Star, Youtube } from "lucide-react";
+import { motion } from "framer-motion";
+
+export default function Results() {
+  const [userProgress, setUserProgress] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadUserData();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      const currentUser = await User.me();
+      const progressList = await UserProgress.filter({ created_by: currentUser.email });
+      if (progressList.length > 0) {
+        setUserProgress(progressList[0]);
+      }
+    } catch (error) {
+      console.error("Error loading user data:", error);
+    }
+    setLoading(false);
+  };
+
+  const getAccuracy = () => {
+    if (!userProgress || userProgress.questions_answered === 0) return 0;
+    return Math.round((userProgress.questions_correct / userProgress.questions_answered) * 100);
+  };
+
+  const getLevel = () => {
+    if (!userProgress) return 1;
+    return Math.floor(userProgress.questions_correct / 10) + 1;
+  };
+
+  const getRank = () => {
+    const accuracy = getAccuracy();
+    if (accuracy >= 90) return { name: "Anime Master", color: "from-yellow-400 to-orange-500", icon: "👑" };
+    if (accuracy >= 80) return { name: "Otaku Expert", color: "from-purple-500 to-pink-500", icon: "⭐" };
+    if (accuracy >= 70) return { name: "Anime Fan", color: "from-blue-500 to-cyan-500", icon: "🎯" };
+    if (accuracy >= 60) return { name: "Newbie", color: "from-green-500 to-teal-500", icon: "🌱" };
+    return { name: "Beginner", color: "from-gray-500 to-slate-500", icon: "📚" };
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+            <Trophy className="w-8 h-8 text-white" />
+          </div>
+          <p className="text-purple-300 text-lg">Loading your achievements...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const rank = getRank();
+
+  return (
+    <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <motion.div 
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center mb-8"
+        >
+          <h1 className="text-4xl md:text-5xl font-bold mb-4 gradient-text">
+            Your Achievements
+          </h1>
+          <p className="text-purple-300 text-lg">
+            Track your progress and see how far you've come!
+          </p>
+        </motion.div>
+
+        {userProgress && (
+          <>
+            {/* Rank Card */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.2 }}
+              className="mb-8"
+            >
+              <Card className={`bg-gradient-to-r ${rank.color} border-none text-white overflow-hidden relative`}>
+                <div className="absolute top-0 right-0 w-32 h-32 transform translate-x-8 -translate-y-8 bg-white/10 rounded-full" />
+                <CardHeader className="relative z-10">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-6xl mb-2">{rank.icon}</div>
+                      <CardTitle className="text-2xl md:text-3xl font-bold">
+                        {rank.name}
+                      </CardTitle>
+                      <p className="text-white/80">
+                        {getAccuracy()}% Accuracy Rate
+                      </p>
+                    </div>
+                    <Badge className="bg-white/20 text-white text-lg px-4 py-2">
+                      Level {getLevel()}
+                    </Badge>
+                  </div>
+                </CardHeader>
+              </Card>
+            </motion.div>
+
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+              >
+                <Card className="bg-gradient-to-br from-purple-900/50 to-pink-900/50 border-purple-500/30 backdrop-blur-md">
+                  <CardContent className="p-6 text-center">
+                    <Trophy className="w-10 h-10 text-yellow-400 mx-auto mb-3" />
+                    <h3 className="text-white text-lg font-semibold mb-1">Total Coins</h3>
+                    <p className="text-2xl font-bold text-yellow-400">{userProgress.total_coins}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+              >
+                <Card className="bg-gradient-to-br from-blue-900/50 to-cyan-900/50 border-blue-500/30 backdrop-blur-md">
+                  <CardContent className="p-6 text-center">
+                    <Target className="w-10 h-10 text-blue-400 mx-auto mb-3" />
+                    <h3 className="text-white text-lg font-semibold mb-1">Questions Correct</h3>
+                    <p className="text-2xl font-bold text-blue-400">{userProgress.questions_correct}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+              >
+                <Card className="bg-gradient-to-br from-green-900/50 to-teal-900/50 border-green-500/30 backdrop-blur-md">
+                  <CardContent className="p-6 text-center">
+                    <Zap className="w-10 h-10 text-green-400 mx-auto mb-3" />
+                    <h3 className="text-white text-lg font-semibold mb-1">Best Streak</h3>
+                    <p className="text-2xl font-bold text-green-400">{userProgress.highest_streak}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.6 }}
+              >
+                <Card className="bg-gradient-to-br from-orange-900/50 to-red-900/50 border-orange-500/30 backdrop-blur-md">
+                  <CardContent className="p-6 text-center">
+                    <Star className="w-10 h-10 text-orange-400 mx-auto mb-3" />
+                    <h3 className="text-white text-lg font-semibold mb-1">Unlocked Packs</h3>
+                    <p className="text-2xl font-bold text-orange-400">{userProgress.unlocked_packs.length}</p>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            </div>
+
+            {/* YouTube Promotion */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.8 }}
+            >
+              <Card className="bg-gradient-to-r from-red-900/50 to-pink-900/50 border-red-500/30 backdrop-blur-md">
+                <CardContent className="p-8 text-center">
+                  <Youtube className="w-12 h-12 text-red-400 mx-auto mb-4" />
+                  <h3 className="text-white text-2xl font-bold mb-2">
+                    🎥 Enjoyed this? Subscribe to Anime Ankmp on YouTube for more anime fun!
+                  </h3>
+                  <p className="text-red-300 text-lg">
+                    Join our community of anime enthusiasts and never miss the latest content!
+                  </p>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+import React from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Coins, Trophy, Target, Zap } from "lucide-react";
+import { motion } from "framer-motion";
+
+export default function PlayerStats({ userProgress }) {
+  const getAccuracy = () => {
+    if (userProgress.questions_answered === 0) return 0;
+    return Math.round((userProgress.questions_correct / userProgress.questions_answered) * 100);
+  };
+
+  const getLevel = () => {
+    return Math.floor(userProgress.questions_correct / 10) + 1;
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2 }}
+      className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"
+    >
+      <Card className="bg-gradient-to-br from-yellow-900/50 to-orange-900/50 border-yellow-500/30 backdrop-blur-md">
+        <CardContent className="p-4 text-center">
+          <Coins className="w-6 h-6 text-yellow-400 mx-auto mb-2" />
+          <p className="text-yellow-100 text-sm">Coins</p>
+          <p className="text-xl font-bold text-yellow-400">{userProgress.total_coins}</p>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-gradient-to-br from-blue-900/50 to-cyan-900/50 border-blue-500/30 backdrop-blur-md">
+        <CardContent className="p-4 text-center">
+          <Target className="w-6 h-6 text-blue-400 mx-auto mb-2" />
+          <p className="text-blue-100 text-sm">Accuracy</p>
+          <p className="text-xl font-bold text-blue-400">{getAccuracy()}%</p>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-gradient-to-br from-green-900/50 to-teal-900/50 border-green-500/30 backdrop-blur-md">
+        <CardContent className="p-4 text-center">
+          <Zap className="w-6 h-6 text-green-400 mx-auto mb-2" />
+          <p className="text-green-100 text-sm">Best Streak</p>
+          <p className="text-xl font-bold text-green-400">{userProgress.highest_streak}</p>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-gradient-to-br from-purple-900/50 to-pink-900/50 border-purple-500/30 backdrop-blur-md">
+        <CardContent className="p-4 text-center">
+          <Trophy className="w-6 h-6 text-purple-400 mx-auto mb-2" />
+          <p className="text-purple-100 text-sm">Level</p>
+          <p className="text-xl font-bold text-purple-400">{getLevel()}</p>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+import React from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { Play, Flame, Zap, Star } from "lucide-react";
+import { motion } from "framer-motion";
+
+const DIFFICULTY_LEVELS = [
+  {
+    id: "easy",
+    name: "Easy",
+    description: "Perfect for beginners",
+    icon: Star,
+    color: "from-green-500 to-teal-500",
+    coins: 10,
+    gradient: "from-green-900/50 to-teal-900/50",
+    border: "border-green-500/30"
+  },
+  {
+    id: "medium",
+    name: "Medium", 
+    description: "For seasoned otakus",
+    icon: Zap,
+    color: "from-blue-500 to-purple-500",
+    coins: 20,
+    gradient: "from-blue-900/50 to-purple-900/50",
+    border: "border-blue-500/30"
+  },
+  {
+    id: "hard",
+    name: "Hard",
+    description: "Ultimate anime challenge",
+    icon: Flame,
+    color: "from-red-500 to-pink-500",
+    coins: 30,
+    gradient: "from-red-900/50 to-pink-900/50",
+    border: "border-red-500/30"
+  }
+];
+
+export default function LevelSelector() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.4 }}
+      className="mb-8"
+    >
+      <h2 className="text-2xl font-bold text-white text-center mb-6">
+        Choose Your Challenge Level
+      </h2>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {DIFFICULTY_LEVELS.map((level, index) => (
+ import React from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { ShoppingBag, Trophy, Play } from "lucide-react";
+import { motion } from "framer-motion";
+
+export default function QuickActions({ userProgress }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.6 }}
+      className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"
+    >
+      {/* Shop */}
+      <Card className="bg-gradient-to-br from-purple-900/50 to-pink-900/50 border-purple-500/30 backdrop-blur-md hover:scale-105 transition-all duration-300">
+        <CardHeader className="text-center">
+          <ShoppingBag className="w-8 h-8 text-purple-400 mx-auto mb-3" />
+          <CardTitle className="text-white">Visit Shop</CardTitle>
+          <p className="text-purple-300 text-sm">Unlock new question packs</p>
+        </CardHeader>
+        <CardContent className="text-center">
+          <Link to={createPageUrl("Shop")}>
+            <Button className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:opacity-90 text-white">
+              Browse Packs
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+
+      {/* Random Quiz */}
+      <Card className="bg-gradient-to-br from-blue-900/50 to-cyan-900/50 border-blue-500/30 backdrop-blur-md hover:scale-105 transition-all duration-300">
+        <CardHeader className="text-center">
+          <Play className="w-8 h-8 text-blue-400 mx-auto mb-3" />
+          <CardTitle className="text-white">Random Quiz</CardTitle>
+          <p className="text-blue-300 text-sm">Mix of all your packs</p>
+        </CardHeader>
+        <CardContent className="text-center">
+          <Link to={createPageUrl("Quiz?difficulty=medium&pack=general")}>
+            <Button className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:opacity-90 text-white">
+              Start Random
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+
+      {/* Progress */}
+      <Card className="bg-gradient-to-br from-green-900/50 to-teal-900/50 border-green-500/30 backdrop-blur-md hover:scale-105 transition-all duration-300">
+        <CardHeader className="text-center">
+          <Trophy className="w-8 h-8 text-green-400 mx-auto mb-3" />
+          <CardTitle className="text-white">View Progress</CardTitle>
+          <p className="text-green-300 text-sm">See your achievements</p>
+        </CardHeader>
+ import React from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Coins, Target, Zap } from "lucide-react";
+
+export default function QuizHeader({ 
+  currentQuestion, 
+  totalQuestions, 
+  score, 
+  coins, 
+  streak, 
+  difficulty, 
+  pack 
+}) {
+  const progressPercentage = ((currentQuestion - 1) / totalQuestions) * 100;
+  
+  const getDifficultyColor = () => {
+    switch (difficulty) {
+      case 'easy': return 'bg-green-500';
+      case 'medium': return 'bg-blue-500';
+      case 'hard': return 'bg-red-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  return (
+    <Card className="bg-gradient-to-r from-purple-900/80 to-pink-900/80 border-purple-500/30 backdrop-blur-md">
+      <CardContent className="p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-white">
+            Question {currentQuestion} of {totalQuestions}
+          </h2>
+          <div className="flex gap-2">
+            <Badge className={`${getDifficultyColor()} text-white capitalize`}>
+              {difficulty}
+            </Badge>
+            <Badge className="bg-purple-600 text-white capitalize">
+              {pack.replace('_', ' ')}
+            </Badge>
+          </div>
+        </div>
+
+        <Progress value={progressPercentage} className="mb-4 h-2" />
+
+        <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="flex items-center justify-center gap-2 text-yellow-400">
+            <Coins className="w-5 h-5" />
+            <span className="font-semibold">{coins}</span>
+          </div>
+          <div className="flex items-center justify-center gap-2 text-blue-400">
+            <Target className="w-5 h-5" />
+            <span className="font-semibold">{score}/{currentQuestion - 1}</span>
+          </div>
+          <div className="flex items-center justify-center gap-2 text-green-400">
+            <Zap className="w-5 h-5" />
+ import React, { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { motion } from "framer-motion";
+
+export default function QuestionCard({ question, onAnswer, questionNumber }) {
+  const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [showFeedback, setShowFeedback] = useState(false);
+
+  const handleAnswerClick = (answerIndex) => {
+    if (selectedAnswer !== null) return;
+    
+    setSelectedAnswer(answerIndex);
+    setShowFeedback(true);
+    
+    setTimeout(() => {
+      onAnswer(answerIndex);
+    }, 500);
+  };
+
+  const getButtonStyle = (index) => {
+    if (selectedAnswer === null) {
+      return "bg-gradient-to-r from-slate-700 to-slate-600 hover:from-purple-600 hover:to-pink-600 text-white border-slate-500";
+    }
+    
+    if (index === question.correct_answer) {
+      return "bg-gradient-to-r from-green-500 to-teal-500 text-white border-green-400";
+    }
+    
+    if (index === selectedAnswer && index !== question.correct_answer) {
+      return "bg-gradient-to-r from-red-500 to-pink-500 text-white border-red-400";
+    }
+    
+    return "bg-gradient-to-r from-slate-700 to-slate-600 text-slate-400 border-slate-600";
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 50 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -50 }}
+      transition={{ duration: 0.3 }}
+    >
+      <Card className="bg-gradient-to-br from-slate-900/95 to-purple-900/95 border-purple-500/30 backdrop-blur-md">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl md:text-3xl font-bold text-white leading-relaxed">
+            {question.question}
+          </CardTitle>
+        </CardHeader>
+        
+        <CardContent className="p-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {question.options.map((option, index) => (
+              <motion.div
+                key={index}
+                whileHover={{ scale: selectedAnswer === null ? 1.02 : 1 }}
+ import React from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { CheckCircle, XCircle, Coins } from "lucide-react";
+import { motion } from "framer-motion";
+
+export default function AnswerFeedback({ isCorrect, correctAnswer, coinsEarned }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.8 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.8 }}
+      className="flex items-center justify-center min-h-[400px]"
+    >
+      <Card className={`max-w-2xl w-full ${
+        isCorrect 
+          ? 'bg-gradient-to-br from-green-900/80 to-teal-900/80 border-green-500/30' 
+          : 'bg-gradient-to-br from-red-900/80 to-pink-900/80 border-red-500/30'
+      } backdrop-blur-md text-center`}>
+        <CardContent className="p-8">
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+            className="mb-6"
+          >
+            {isCorrect ? (
+              <CheckCircle className="w-20 h-20 text-green-400 mx-auto" />
+            ) : (
+              <XCircle className="w-20 h-20 text-red-400 mx-auto" />
+            )}
+          </motion.div>
+
+          <motion.h2
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className={`text-4xl font-bold mb-4 ${isCorrect ? 'text-green-300' : 'text-red-300'}`}
+          >
+            {isCorrect ? 'Correct!' : 'Wrong!'}
+          </motion.h2>
+
+          {!isCorrect && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4 }}
+              className="text-red-200 text-lg mb-4"
+            >
+              The correct answer was: <strong>{correctAnswer}</strong>
+            </motion.p>
+          )}
+
+          {isCorrect && coinsEarned > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+ import React from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Trophy, Star, Coins, Target, RotateCcw, Home, Youtube } from "lucide-react";
+import { motion } from "framer-motion";
+
+const MOTIVATIONAL_QUOTES = [
+  {
+    quote: "It's not the face that makes someone a monster, it's the choices they make with their lives.",
+    author: "Naruto Uzumaki"
+  },
+  {
+    quote: "The world isn't perfect, but it's there for us trying the best it can. That's what makes it so damn beautiful.",
+    author: "Roy Mustang, Fullmetal Alchemist"
+  },
+  {
+    quote: "If you don't take risks, you can't create a future!",
+    author: "Monkey D. Luffy"
+  },
+  {
+    quote: "Hard work is what makes your dreams come true!",
+    author: "Rock Lee"
+  },
+  {
+    quote: "Even if we forget the faces of our friends, we will never forget the bonds that were carved into our souls.",
+    author: "Ichigo Kurosaki"
+  }
+];
+
+export default function QuizResults({ 
+  score, 
+  totalQuestions, 
+  coinsEarned, 
+  streak,
+  difficulty,
+  pack,
+  onPlayAgain, 
+  onGoHome 
+}) {
+  const percentage = Math.round((score / totalQuestions) * 100);
+  const randomQuote = MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
+
+  const getPerformanceRank = () => {
+    if (percentage >= 90) return { name: "Perfect!", color: "from-yellow-400 to-orange-500", emoji: "🏆" };
+    if (percentage >= 80) return { name: "Excellent!", color: "from-purple-500 to-pink-500", emoji: "⭐" };
+    if (percentage >= 70) return { name: "Great Job!", color: "from-blue-500 to-cyan-500", emoji: "🎯" };
+    if (percentage >= 60) return { name: "Good Try!", color: "from-green-500 to-teal-500", emoji: "👍" };
+    return { name: "Keep Practicing!", color: "from-gray-500 to-slate-500", emoji: "📚" };
+  };
+
+  const rank = getPerformanceRank();
+
+  return (
+    <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="max-w-2xl w-full space-y-6"
+      >
+        {/* Main Results Card */}
+        <Card className={`bg-gradient-to-r ${rank.color} border-none text-white overflow-hidden relative`}>
+          <div className="absolute top-0 right-0 w-32 h-32 transform translate-x-8 -translate-y-8 bg-white/10 rounded-full" />
+          <CardHeader className="text-center relative z-10">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.3, type: "spring" }}
+              className="text-6xl mb-4"
+            >
+              {rank.emoji}
+            </motion.div>
+            <CardTitle className="text-3xl md:text-4xl font-bold mb-2">
+              Quiz Complete!
+            </CardTitle>
+            <p className="text-white/90 text-xl">{rank.name}</p>
+          </CardHeader>
+        </Card>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card className="bg-gradient-to-br from-purple-900/80 to-pink-900/80 border-purple-500/30 backdrop-blur-md">
+            <CardContent className="p-6 text-center">
+              <Target className="w-8 h-8 text-purple-400 mx-auto mb-2" />
+              <p className="text-purple-200 text-sm">Score</p>
+              <p className="text-2xl font-bold text-white">{score}/{totalQuestions}</p>
+              <p className="text-purple-300 text-xs">{percentage}%</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-yellow-900/80 to-orange-900/80 border-yellow-500/30 backdrop-blur-md">
+            <CardContent className="p-6 text-center">
+              <Coins className="w-8 h-8 text-yellow-400 mx-auto mb-2" />
+              <p className="text-yellow-200 text-sm">Coins</p>
+              <p className="text-2xl font-bold text-white">+{coinsEarned}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-green-900/80 to-teal-900/80 border-green-500/30 backdrop-blur-md">
+            <CardContent className="p-6 text-center">
+              <Star className="w-8 h-8 text-green-400 mx-auto mb-2" />
+              <p className="text-green-200 text-sm">Best Streak</p>
+              <p className="text-2xl font-bold text-white">{streak}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-blue-900/80 to-cyan-900/80 border-blue-500/30 backdrop-blur-md">
+            <CardContent className="p-6 text-center">
+              <Trophy className="w-8 h-8 text-blue-400 mx-auto mb-2" />
+              <p className="text-blue-200 text-sm">Level</p>
+              <p className="text-xl font-bold text-white capitalize">{difficulty}</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Motivational Quote */}
+        <Card className="bg-gradient-to-br from-slate-900/80 to-purple-900/80 border-slate-500/30 backdrop-blur-md">
+          <CardContent className="p-6 text-center">
+            <Star className="w-8 h-8 text-yellow-400 mx-auto mb-4" />
+            <blockquote className="text-white text-lg italic mb-3">
+              "{randomQuote.quote}"
+            </blockquote>
+            <p className="text-purple-300">— {randomQuote.author}</p>
+          </CardContent>
+        </Card>
+
+        {/* YouTube Promotion */}
+        <Card className="bg-gradient-to-r from-red-900/80 to-pink-900/80 border-red-500/30 backdrop-blur-md">
+          <CardContent className="p-6 text-center">
+            <Youtube className="w-10 h-10 text-red-400 mx-auto mb-3" />
+            <p className="text-white text-lg font-semibold">
+              🎥 Enjoyed this? Subscribe to Anime Ankmp on YouTube for more anime fun!
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Action Buttons */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Button
+            onClick={onPlayAgain}
+            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white py-4 text-lg font-semibold"
+          >
+            <RotateCcw className="w-5 h-5 mr-2" />
+            Play Again
+          </Button>
+          <Button
+            onClick={onGoHome}
+            variant="outline"
+            className="border-purple-500 text-purple-300 hover:bg-purple-900/50 py-4 text-lg font-semibold"
+          >
+            <Home className="w-5 h-5 mr-2" />
+            Go Home
+          </Button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+import React from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Coins } from "lucide-react";
+import { motion } from "framer-motion";
+
+export default function CoinsDisplay({ totalCoins }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2 }}
+      className="mb-8"
+    >
+      <Card className="bg-gradient-to-r from-yellow-900/50 to-orange-900/50 border-yellow-500/30 backdrop-blur-md max-w-sm mx-auto">
+        <CardContent className="p-6 text-center">
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <Coins className="w-8 h-8 text-yellow-400" />
+            <span className="text-3xl font-bold text-yellow-400">{totalCoins}</span>
+          </div>
+          <p className="text-yellow-200">Available Coins</p>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+import React from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Coins, Lock, Check } from "lucide-react";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { motion } from "framer-motion";
+
+export default function PackCard({ pack, userProgress, onPurchase, purchasing, index }) {
+  const isUnlocked = userProgress?.unlocked_packs.includes(pack.id);
+  const canAfford = userProgress && userProgress.total_coins >= pack.price;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.3 + index * 0.1 }}
+    >
+      <Card className={`bg-gradient-to-br ${pack.color}/10 border-${pack.color.split('-')[1]}-500/30 backdrop-blur-md hover:scale-105 transition-all duration-300 ${isUnlocked ? 'ring-2 ring-green-500/50' : ''}`}>
+        <CardHeader className="text-center">
+          <div className={`w-16 h-16 bg-gradient-to-r ${pack.color} rounded-full flex items-center justify-center mx-auto mb-4 text-3xl`}>
+            {pack.icon}
+          </div>
+          <CardTitle className="text-white text-xl">{pack.name}</CardTitle>
+          <p className="text-gray-300 text-sm">{pack.description}</p>
+          
+          {isUnlocked ? (
+            <Badge className="bg-green-500 text-white border-none">
+              <Check className="w-3 h-3 mr-1" />
+              Unlocked
+            </Badge>
+          ) : (
+            <Badge className={`bg-gradient-to-r ${pack.color} text-white border-none`}>
+              <Coins className="w-3 h-3 mr-1" />
+              {pack.price} coins
+            </Badge>
+          )}
+        </CardHeader>
+        
+        <CardContent className="text-center pb-6">
+          {isUnlocked ? (
+            <Link to={createPageUrl(`Quiz?difficulty=medium&pack=${pack.id}`)}>
+              <Button className={`w-full bg-gradient-to-r ${pack.color} hover:opacity-90 transition-all duration-300 text-white font-semibold py-3`}>
+                Play Quiz
+              </Button>
+            </Link>
+          ) : (
+            <Button
+              onClick={() => onPurchase(pack.id, pack.price)}
+              disabled={!canAfford || purchasing}
+              className={`w-full ${
+                canAfford 
+                  ? `bg-gradient-to-r ${pack.color} hover:opacity-90` 
+                  : 'bg-gray-600 cursor-not-allowed'
+              } transition-all duration-300 text-white font-semibold py-3`}
+            >
+              {purchasing ? (
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                  Purchasing...
+                </div>
+              ) : canAfford ? (
+                <>
+                  <Coins className="w-4 h-4 mr-2" />
+                  Purchase
+                </>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4 mr-2" />
+                  Need {pack.price - (userProgress?.total_coins || 0)} more coins
+                </>
+              )}
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+{
+  "name": "Question",
+  "type": "object",
+  "properties": {
+    "question": {
+      "type": "string",
+      "description": "The quiz question"
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Four answer options"
+    },
+    "correct_answer": {
+      "type": "number",
+      "description": "Index of the correct answer (0-3)"
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "easy",
+        "medium",
+        "hard"
+      ],
+      "description": "Question difficulty level"
+    },
+    "pack": {
+      "type": "string",
+      "enum": [
+        "general",
+        "naruto",
+        "dragon_ball",
+        "demon_slayer",
+        "attack_on_titan",
+        "one_piece"
+      ],
+      "description": "Question pack category"
+    },
+    "coins_reward": {
+      "type": "number",
+      "description": "Coins earned for correct answer"
+    }
+  },
+  "required": [
+    "question",
+    "options",
+    "correct_answer",
+    "difficulty",
+    "pack",
+    "coins_reward"
+  ]
+}
+{
+  "name": "UserProgress",
+  "type": "object",
+  "properties": {
+    "total_coins": {
+      "type": "number",
+      "default": 0,
+      "description": "Total coins earned by the player"
+    },
+    "unlocked_packs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "general"
+      ],
+      "description": "Array of unlocked question packs"
+    },
+    "questions_answered": {
+      "type": "number",
+      "default": 0,
+      "description": "Total questions answered"
+    },
+    "questions_correct": {
+      "type": "number",
+      "default": 0,
+      "description": "Total correct answers"
+    },
+    "highest_streak": {
+      "type": "number",
+      "default": 0,
+      "description": "Highest correct answer streak"
+    },
+    "level": {
+      "type": "number",
+      "default": 1,
+      "description": "Player level"
+    }
+  },
+  "required": [],
+  "rls": {
+    "read": {
+      "created_by": "{{user.email}}"
+    },
+    "write": {
+      "created_by": "{{user.email}}"
+    }
+  }
+}
+import React from "react";
+import { Link, useLocation } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { Home, ShoppingBag, Trophy, Zap } from "lucide-react";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarHeader,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
+
+const navigationItems = [
+  {
+    title: "Home",
+    url: createPageUrl("Home"),
+    icon: Home,
+  },
+  {
+    title: "Shop",
+    url: createPageUrl("Shop"),
+    icon: ShoppingBag,
+  },
+  {
+    title: "Results",
+    url: createPageUrl("Results"),
+    icon: Trophy,
+  },
+];
+
+export default function Layout({ children, currentPageName }) {
+  const location = useLocation();
+
+  return (
+    <SidebarProvider>
+      <style jsx>{`
+        :root {
+          --anime-purple: #8B5CF6;
+          --anime-pink: #EC4899;
+          --anime-blue: #3B82F6;
+          --anime-dark: #1E1B4B;
+          --anime-success: #10B981;
+          --anime-error: #EF4444;
+        }
+        
+        body {
+          background: linear-gradient(135deg, var(--anime-dark) 0%, #2D1B69 50%, #1E1B4B 100%);
+          min-height: 100vh;
+        }
+        
+        .anime-glow {
+          box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+        }
+        
+        .anime-pulse {
+          animation: anime-pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes anime-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
+        
+        .gradient-text {
+          background: linear-gradient(45deg, var(--anime-purple), var(--anime-pink));
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+      `}</style>
+      
+      <div className="min-h-screen flex w-full">
+        <Sidebar className="border-r border-purple-800/30 bg-gradient-to-b from-slate-900/95 to-purple-900/95 backdrop-blur-md">
+          <SidebarHeader className="border-b border-purple-800/30 p-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center anime-glow">
+                <Zap className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="font-bold text-white text-lg gradient-text">Anime Quiz</h2>
+                <p className="text-xs text-purple-300">Power up your knowledge!</p>
+              </div>
+            </div>
+          </SidebarHeader>
+          
+          <SidebarContent className="p-4">
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {navigationItems.map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton 
+                        asChild 
+                        className={`hover:bg-purple-800/50 hover:text-purple-200 transition-all duration-300 rounded-xl mb-2 ${
+                          location.pathname === item.url ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white anime-glow' : 'text-purple-200'
+                        }`}
+                      >
+                        <Link to={item.url} className="flex items-center gap-3 px-4 py-3">
+                          <item.icon className="w-5 h-5" />
+                          <span className="font-medium">{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+        </Sidebar>
+
+        <main className="flex-1 flex flex-col bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900">
+          <header className="bg-gradient-to-r from-purple-900/30 to-pink-900/30 backdrop-blur-md border-b border-purple-800/30 px-6 py-4 md:hidden">
+            <div className="flex items-center gap-4">
+              <SidebarTrigger className="hover:bg-purple-800/50 p-2 rounded-lg transition-colors duration-200 text-white" />
+              <h1 className="text-xl font-bold text-white gradient-text">Anime Quiz</h1>
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-auto">
+            {children}
+          </div>
+        </main>
+      </div>
+    </SidebarProvider>
+  );
+}
